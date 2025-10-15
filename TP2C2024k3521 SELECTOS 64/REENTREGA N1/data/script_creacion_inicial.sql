@@ -1,5 +1,5 @@
-
-
+CREATE SCHEMA SELECTOS
+GO
 ------------------------- PROCEDURES DE MIGRACION ------------------------------------------------
 CREATE PROCEDURE MigrarProvincia
 AS
@@ -55,8 +55,8 @@ CREATE PROCEDURE MigrarAlmacen
 AS
 BEGIN
     BEGIN TRANSACTION;
-    INSERT INTO SELECTOS.Almacen(almacen_id, almacen_localidad,almacen_calle, almacen_nro_calle, almacen_costo_dia_al)
-    SELECT DISTINCT m.almacen_codigo, l.localidad_id, m.almacen_calle, m.almacen_nro_calle, m.almacen_costo_dia_al 
+    INSERT INTO SELECTOS.Almacen(almacen_id, almacen_localidad,almacen_provincia,almacen_calle, almacen_nro_calle, almacen_costo_dia_al)
+    SELECT DISTINCT m.almacen_codigo, l.localidad_id,p.provincia_id, m.almacen_calle, m.almacen_nro_calle, m.almacen_costo_dia_al 
     FROM gd_esquema.Maestra m 
     LEFT JOIN SELECTOS.localidad l on m.almacen_localidad = l.localidad_nombre
     LEFT JOIN SELECTOS.provincia p on p.provincia_nombre = m.almacen_provincia
@@ -105,7 +105,7 @@ AS
 BEGIN
     BEGIN TRANSACTION;
 
-    -- Selecciona datos de factura y vendedor basados en el identificador común de publicación
+    -- Selecciona datos de factura y vendedor basados en el identificador comÃºn de publicaciÃ³n
     INSERT INTO SELECTOS.Factura(factura_vendedor, factura_numero, factura_fecha, factura_total)
     SELECT DISTINCT 
         v.vendedor_id,
@@ -220,8 +220,8 @@ CREATE PROCEDURE MigrarConcepto
 AS
 BEGIN
 	BEGIN TRANSACTION;
-		INSERT INTO SELECTOS.Concepto(concepto_tipo,concepto_precio_unitario)
-		SELECT DISTINCT	m.FACTURA_DET_TIPO, m.FACTURA_DET_PRECIO
+		INSERT INTO SELECTOS.Concepto(concepto_tipo)
+		SELECT DISTINCT	m.FACTURA_DET_TIPO
 		FROM gd_esquema.Maestra m
 		WHERE m.FACTURA_DET_TIPO IS NOT NULL
 	COMMIT TRANSACTION;
@@ -240,10 +240,13 @@ BEGIN
                 ON m.VEN_USUARIO_NOMBRE = usuario_nombre
                 AND  m.VEN_USUARIO_PASS= usuario_pass
                 AND m.VEN_USUARIO_FECHA_CREACION = usuario_fecha_creacion
-                 JOIN SELECTOS.Localidad as l
+                 /*JOIN SELECTOS.Localidad as l
                     on l.localidad_nombre = m.VEN_USUARIO_DOMICILIO_LOCALIDAD
                     join SELECTOS.Provincia as p 
-                        on m.VEN_USUARIO_DOMICILIO_PROVINCIA = p.provincia_nombre
+                        on m.VEN_USUARIO_DOMICILIO_PROVINCIA = p.provincia_nombre*/
+					JOIN SELECTOS.Provincia p on m.VEN_USUARIO_DOMICILIO_PROVINCIA = p.provincia_nombre
+					JOIN SELECTOS.Localidad l on m.VEN_USUARIO_DOMICILIO_LOCALIDAD = l.localidad_nombre and
+					l.localidad_provincia = p.provincia_id
         WHERE m.VEN_USUARIO_DOMICILIO_CALLE IS NOT NULL
         Union
         SELECT DISTINCT l.localidad_id,u.usuario_id,m.CLI_USUARIO_DOMICILIO_PISO,CLI_USUARIO_DOMICILIO_DEPTO,CLI_USUARIO_DOMICILIO_CALLE,
@@ -253,11 +256,15 @@ BEGIN
                 ON m.CLI_USUARIO_NOMBRE = usuario_nombre
                 AND  m.CLI_USUARIO_PASS= usuario_pass
                 AND m.CLI_USUARIO_FECHA_CREACION = usuario_fecha_creacion
-                 JOIN SELECTOS.Localidad as l
+                 /*JOIN SELECTOS.Localidad as l
                     on l.localidad_nombre = m.CLI_USUARIO_DOMICILIO_LOCALIDAD
                     join SELECTOS.Provincia as p 
-                        on m.CLI_USUARIO_DOMICILIO_PROVINCIA = p.provincia_nombre
-        WHERE m.CLI_USUARIO_DOMICILIO_CALLE IS NOT NULL
+                        on m.CLI_USUARIO_DOMICILIO_PROVINCIA = p.provincia_nombre*/
+				JOIN SELECTOS.Provincia p on m.CLI_USUARIO_DOMICILIO_PROVINCIA = p.provincia_nombre
+					JOIN SELECTOS.Localidad l on m.CLI_USUARIO_DOMICILIO_LOCALIDAD = l.localidad_nombre and
+					l.localidad_provincia = p.provincia_id
+        WHERE m.CLI_USUARIO_DOMICILIO_CALLE IS NOT NULL 
+		order by usuario_id
     COMMIT TRANSACTION;
 END;
 GO
@@ -301,12 +308,11 @@ CREATE PROCEDURE MigrarDetalleFactura
 AS
 BEGIN
     BEGIN TRANSACTION;
-        INSERT INTO SELECTOS.DetalleFactura(detalle_factura_id, detalle_factura_concepto_id, detalle_factura_publicacion, detalle_factura_cantidad, detalle_factura_subtotal)
-        SELECT f.factura_id, c.concepto_id, m.publicacion_codigo, m.FACTURA_DET_CANTIDAD, m.FACTURA_DET_SUBTOTAL
+        INSERT INTO SELECTOS.DetalleFactura(detalle_factura_id, detalle_factura_concepto_id, detalle_factura_publicacion, detalle_factura_cantidad, detalle_factura_subtotal, detalle_factura_precio)
+        SELECT f.factura_id, c.concepto_id, m.publicacion_codigo, m.FACTURA_DET_CANTIDAD, m.FACTURA_DET_SUBTOTAL, m.FACTURA_DET_PRECIO
         FROM gd_esquema.Maestra m
 			JOIN SELECTOS.Concepto AS c
                     ON FACTURA_DET_TIPO = c.concepto_tipo
-					AND FACTURA_DET_PRECIO = c.concepto_precio_unitario
             JOIN SELECTOS.Factura AS f
                 ON m.FACTURA_NUMERO = f.factura_numero
         where m.FACTURA_DET_TIPO is not null
@@ -411,11 +417,21 @@ BEGIN
                         m.ENVIO_COSTO
         FROM gd_esquema.maestra m
         JOIN SELECTOS.venta v on m.VENTA_CODIGO = v.venta_codigo
-        JOIN SELECTOS.cliente c on c.cliente_id = v.venta_cliente
-        JOIN SELECTOS.Domicilio d on d.domicilio_usuario = c.cliente_usuario
+        JOIN SELECTOS.Domicilio d ON 
+		m.CLI_USUARIO_DOMICILIO_CALLE = d.domicilio_calle
+		AND m.CLI_USUARIO_DOMICILIO_NRO_CALLE = d.domicilio_nro_calle
+		AND m.CLI_USUARIO_DOMICILIO_DEPTO = d.domicilio_depto
+		AND m.CLI_USUARIO_DOMICILIO_CP = d.domicilio_cp
+		AND m.CLI_USUARIO_DOMICILIO_LOCALIDAD = 
+       (SELECT l.localidad_nombre 
+        FROM SELECTOS.Localidad l 
+        WHERE l.localidad_id = d.domicilio_localidad)
+		AND m.CLI_USUARIO_DOMICILIO_PROVINCIA = (SELECT pr.provincia_nombre from SELECTOS.Provincia pr JOIN SELECTOS.Localidad lo ON
+			localidad_provincia = provincia_id where localidad_id = d.domicilio_localidad)
         JOIN SELECTOS.TipoEnvio t on t.envio_tipo =  m.ENVIO_TIPO
 
         where m.ENVIO_TIPO is not null
+
     COMMIT TRANSACTION;
 END; 
 GO
@@ -447,17 +463,19 @@ BEGIN
     create table SELECTOS.Localidad(
         localidad_id int PRIMARY KEY  IDENTITY(1,1),
         localidad_provincia int,
-        localidad_nombre varchar(50),
+        localidad_nombre nvarchar(50),
         foreign key (localidad_provincia) references SELECTOS.Provincia(provincia_id)
     );
 
     create table SELECTOS.Almacen (
         almacen_id decimal(18,0) PRIMARY KEY,
         almacen_localidad int,
+		almacen_provincia int,
         almacen_nro_calle decimal(9,2),
         almacen_costo_dia_al decimal (9,2),
         almacen_calle varchar(100),
-        foreign key (almacen_localidad) references SELECTOS.Localidad(localidad_id)
+        foreign key (almacen_localidad) references SELECTOS.Localidad(localidad_id),
+		foreign key (almacen_provincia) references SELECTOS.Provincia(provincia_id)
     );
 
     create table SELECTOS.Usuario(
@@ -511,12 +529,12 @@ BEGIN
 
     create table SELECTOS.Modelo(
         modelo_codigo decimal(18,0) PRIMARY KEY,
-        modelo_descripcion varchar(50)
+        modelo_descripcion nvarchar(50)
     );
 
     create table SELECTOS.Marca(
         marca_id int PRIMARY KEY  IDENTITY(1,1),
-        marca_descripcion varchar(50)
+        marca_descripcion nvarchar(50)
     );
 
     create table SELECTOS.Producto(
@@ -535,8 +553,7 @@ BEGIN
 
     create table SELECTOS.Concepto(
         concepto_id int PRIMARY KEY  IDENTITY(1,1),
-        concepto_tipo varchar(50),
-        concepto_precio_unitario decimal(18,2)
+        concepto_tipo varchar(50)
     );
 
     CREATE TABLE SELECTOS.Domicilio (
@@ -545,10 +562,10 @@ BEGIN
         --domicilio_provincia int,
         domicilio_usuario int,
         domicilio_piso decimal(18,0),
-        domicilio_depto varchar(50),
-        domicilio_calle varchar(50),
+        domicilio_depto nvarchar(50),
+        domicilio_calle nvarchar(50),
         domicilio_nro_calle decimal(18,0),
-        domicilio_cp varchar(50),
+        domicilio_cp nvarchar(50),
         foreign key  (domicilio_localidad) references SELECTOS.Localidad(localidad_id),
        -- foreign key (domicilio_provincia) references SELECTOS.Provincia(provincia_id),
         foreign key (domicilio_usuario) references SELECTOS.Usuario(usuario_id)
@@ -576,7 +593,8 @@ BEGIN
         detalle_factura_concepto_id  int, 
         detalle_factura_publicacion  decimal(18,0),
         detalle_factura_cantidad decimal(18,0),
-        detalle_factura_subtotal  decimal(18,2)
+        detalle_factura_subtotal  decimal(18,2),
+		detalle_factura_precio decimal(18,2)
         PRIMARY KEY (detalle_factura_id, detalle_factura_concepto_id),
         FOREIGN KEY (detalle_factura_id) REFERENCES SELECTOS.Factura(factura_id),
         FOREIGN KEY (detalle_factura_concepto_id) REFERENCES SELECTOS.Concepto(concepto_id)
@@ -623,7 +641,7 @@ BEGIN
 
     create table SELECTOS.TipoEnvio(
         tipo_envio_id int PRIMARY KEY  IDENTITY(1,1),
-        envio_tipo varchar(50)
+        envio_tipo nvarchar(50)
     );
 
     create table SELECTOS.Envio(
@@ -740,8 +758,8 @@ GO
 CREATE PROCEDURE correrMigracion
 AS
 BEGIN
-	BEGIN TRANSACTION;
 	exec CrearTablas;
+	BEGIN TRANSACTION;
 	exec MigrarProvincia;
 	exec MigrarLocalidad;
 	exec MigrarAlmacen;
@@ -771,9 +789,5 @@ BEGIN
 END;
 GO
 
---drop procedure correrMigracion
---drop procedure CrearTablas
---DROP PROCEDURE EliminarTodo
---exec EliminarTodo;
 
 exec correrMigracion;
